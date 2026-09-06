@@ -25,22 +25,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.example.soarmcontroller.ui.components.ConnectionGate
 import com.example.soarmcontroller.ui.components.Guideline
 import com.example.soarmcontroller.ui.components.GuidelinesDialog
 
 /**
- * Shared page frame for every control mode:
- *  - a large title with a help button (opens the guidelines popup)
- *  - the mode's interactive content, gated behind an active connection
+ * Shared page frame for every control mode: a large title with a help button
+ * (opens the guidelines popup), an optional pinned strip below it that stays put
+ * while the rest scrolls, then the mode's content.
  */
 @Composable
 fun ModeScaffold(
     title: String,
     guidelines: List<Guideline>,
-    connected: Boolean,
-    onRequestConnect: () -> Unit,
     contentPadding: PaddingValues,
+    pinnedContent: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     var showHelp by remember { mutableStateOf(false) }
@@ -48,9 +46,8 @@ fun ModeScaffold(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
             .padding(contentPadding)
-            .padding(horizontal = 20.dp),
+            .padding(horizontal = 16.dp),
     ) {
         Spacer(Modifier.height(8.dp))
         Row(
@@ -69,11 +66,19 @@ fun ModeScaffold(
         }
         Spacer(Modifier.height(12.dp))
 
-        ConnectionGate(connected = connected, onRequestConnect = onRequestConnect) {
-            content()
+        if (pinnedContent != null) {
+            pinnedContent()
+            Spacer(Modifier.height(14.dp))
         }
 
-        Spacer(Modifier.height(24.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+        ) {
+            content()
+            Spacer(Modifier.height(24.dp))
+        }
     }
 
     if (showHelp) {

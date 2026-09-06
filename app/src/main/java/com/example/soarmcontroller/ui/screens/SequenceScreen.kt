@@ -39,6 +39,7 @@ import com.example.soarmcontroller.data.model.SequenceRecord
 import com.example.soarmcontroller.ui.components.ExpandableCard
 import com.example.soarmcontroller.ui.components.Guideline
 import com.example.soarmcontroller.ui.components.NameDialog
+import com.example.soarmcontroller.ui.components.NotConnectedDialog
 import kotlinx.coroutines.launch
 
 private val SEQ_GUIDELINES = listOf(
@@ -63,8 +64,6 @@ fun SequenceScreen(
     ModeScaffold(
         title = "Sequence",
         guidelines = SEQ_GUIDELINES,
-        connected = connected,
-        onRequestConnect = onRequestConnect,
         contentPadding = contentPadding,
     ) {
         val scope = rememberCoroutineScope()
@@ -74,6 +73,13 @@ fun SequenceScreen(
         var nextPoseId by remember { mutableIntStateOf(1) }
         var motorsReleased by remember { mutableStateOf(false) }
         var showSave by remember { mutableStateOf(false) }
+        var pendingStep by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+        val addPose: () -> Unit = {
+            steps.add(SeqStep.Pose("Pose $nextPoseId"))
+            nextPoseId++
+        }
+        val addDelay: () -> Unit = { steps.add(SeqStep.Delay(500)) }
 
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(
@@ -135,14 +141,11 @@ fun SequenceScreen(
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(
-                    onClick = {
-                        steps.add(SeqStep.Pose("Pose $nextPoseId"))
-                        nextPoseId++
-                    },
+                    onClick = { if (connected) addPose() else pendingStep = addPose },
                     modifier = Modifier.weight(1f),
                 ) { Text("Add pose") }
                 OutlinedButton(
-                    onClick = { steps.add(SeqStep.Delay(500)) },
+                    onClick = { if (connected) addDelay() else pendingStep = addDelay },
                     modifier = Modifier.weight(1f),
                 ) { Text("Add delay") }
             }
@@ -185,6 +188,15 @@ fun SequenceScreen(
                     }
                 }
             }
+        }
+
+        pendingStep?.let { action ->
+            NotConnectedDialog(
+                proceedLabel = "Add anyway",
+                onProceed = action,
+                onConnect = onRequestConnect,
+                onDismiss = { pendingStep = null },
+            )
         }
 
         if (showSave) {

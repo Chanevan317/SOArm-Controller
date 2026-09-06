@@ -17,9 +17,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,12 +37,14 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.soarmcontroller.R
+import com.example.soarmcontroller.ui.components.label
+import com.example.soarmcontroller.ui.theme.ThemeMode
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AboutScreen(
-    resolvedDark: Boolean,
-    onToggleTheme: () -> Unit,
+    themeMode: ThemeMode,
+    onThemeModeChange: (ThemeMode) -> Unit,
     onOpenSource: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -73,15 +74,15 @@ fun AboutScreen(
             )
         },
     ) { padding ->
-        AboutContent(version, resolvedDark, onToggleTheme, onOpenSource, padding)
+        AboutContent(version, themeMode, onThemeModeChange, onOpenSource, padding)
     }
 }
 
 @Composable
 private fun AboutContent(
     version: String,
-    resolvedDark: Boolean,
-    onToggleTheme: () -> Unit,
+    themeMode: ThemeMode,
+    onThemeModeChange: (ThemeMode) -> Unit,
     onOpenSource: () -> Unit,
     padding: PaddingValues,
 ) {
@@ -123,28 +124,36 @@ private fun AboutContent(
         )
 
         Spacer(Modifier.height(24.dp))
+        Text(
+            "Theme",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 8.dp),
+        )
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            OutlinedButton(onClick = onToggleTheme, modifier = Modifier.weight(1f)) {
-                Icon(
-                    if (resolvedDark) Icons.Filled.LightMode else Icons.Filled.DarkMode,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
+            ThemeMode.entries.forEach { mode ->
+                FilterChip(
+                    selected = mode == themeMode,
+                    onClick = { onThemeModeChange(mode) },
+                    label = { Text(mode.label) },
+                    modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.width(8.dp))
-                Text(if (resolvedDark) "Light" else "Dark")
             }
-            OutlinedButton(onClick = onOpenSource, modifier = Modifier.weight(1f)) {
-                Icon(
-                    Icons.AutoMirrored.Filled.OpenInNew,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text("Source")
-            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        OutlinedButton(onClick = onOpenSource, modifier = Modifier.fillMaxWidth()) {
+            Icon(
+                Icons.AutoMirrored.Filled.OpenInNew,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("View source")
         }
 
         Spacer(Modifier.height(24.dp))

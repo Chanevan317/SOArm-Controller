@@ -12,29 +12,32 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.example.soarmcontroller.ui.components.AxisReadout
 import com.example.soarmcontroller.ui.components.Guideline
 import com.example.soarmcontroller.ui.components.Joystick
+import com.example.soarmcontroller.ui.components.SplitAction
+import com.example.soarmcontroller.ui.components.VerticalJog
 
 private val JOG_GUIDELINES = listOf(
     Guideline(
         "Rate control",
-        "Push a stick further to move faster along that axis; release and it springs back to zero.",
+        "Push a control further to move faster along that axis; release and it re-centres.",
     ),
-    Guideline("Left stick", "Moves the gripper in the horizontal plane (X and Y)."),
-    Guideline("Right stick", "Moves the gripper up and down (Z) and rotates the wrist."),
-    Guideline("Middle buttons", "Wrist pitch, and gripper open / close."),
+    Guideline("Left stick", "Moves the gripper across the table — X and Y."),
+    Guideline("Height (Z)", "The vertical control raises and lowers the gripper. Up / down only."),
+    Guideline("Pitch bar", "Tilts the wrist down (−) or up (+)."),
+    Guideline("Grip bar", "Opens or closes the gripper."),
     Guideline("STOP", "Halts all motion immediately."),
     Guideline("5 joints", "Some wrist angles can't be reached; the arm gets as close as it can."),
 )
@@ -48,17 +51,28 @@ fun JogScreen(
     ModeScaffold(
         title = "Jog",
         guidelines = JOG_GUIDELINES,
-        connected = connected,
-        onRequestConnect = onRequestConnect,
         contentPadding = contentPadding,
+        pinnedContent = {
+            // Pinned under the header, away from the joystick thumb zone.
+            Button(
+                onClick = {},
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                ),
+            ) { Text("STOP", style = MaterialTheme.typography.titleMedium) }
+        },
     ) {
-        var left by remember { mutableStateOf(0f to 0f) }
-        var right by remember { mutableStateOf(0f to 0f) }
-        var speed by remember { mutableIntStateOf(1) } // 0 slow, 1 medium, 2 fast
+        var planar by remember { mutableStateOf(0f to 0f) } // x, y
+        var height by remember { mutableFloatStateOf(0f) }   // z
+        var speed by remember { mutableIntStateOf(1) }       // 0 slow, 1 medium, 2 fast
 
-        Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
 
-            // --- Top: speed (label + options on one line) ----------------
+            // --- Speed -------------------------------------------------
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -75,81 +89,78 @@ fun JogScreen(
                 }
             }
 
-            // --- Middle: pitch + gripper --------------------------------
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = {}, modifier = Modifier.weight(1f)) { Text("Pitch −") }
-                OutlinedButton(onClick = {}, modifier = Modifier.weight(1f)) { Text("Pitch +") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = {}, modifier = Modifier.weight(1f)) { Text("Grip open") }
-                OutlinedButton(onClick = {}, modifier = Modifier.weight(1f)) { Text("Grip close") }
-            }
+            // --- Pitch + gripper, each a split bar --------------------
+            SplitAction(
+                left = "Pitch −" to {},
+                right = "Pitch +" to {},
+                modifier = Modifier.fillMaxWidth(),
+            )
+            SplitAction(
+                left = "Grip close" to {},
+                right = "Grip open" to {},
+                modifier = Modifier.fillMaxWidth(),
+            )
 
-            Button(
-                onClick = {},
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error,
-                    contentColor = MaterialTheme.colorScheme.onError,
-                ),
-            ) { Text("STOP", style = MaterialTheme.typography.titleMedium) }
-
-            // --- Bottom: joysticks (thumb zone) -------------------------
+            // --- Two equal columns: a control stacked over its readout ---
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                StickBlock("Translate  X · Y", Modifier.weight(1f)) {
+                ControlColumn(
+                    label = "Move  X · Y",
+                    readoutLabel = "L",
+                    axes = listOf("X" to planar.first, "Y" to planar.second),
+                    modifier = Modifier.weight(1f),
+                ) {
                     Joystick(
-                        onMove = { x, y -> left = x to y },
-                        enabled = connected,
+                        onMove = { x, y -> planar = x to y },
                         modifier = Modifier
                             .fillMaxWidth()
                             .aspectRatio(1f),
                     )
                 }
-                StickBlock("Z · Wrist", Modifier.weight(1f)) {
-                    Joystick(
-                        onMove = { x, y -> right = x to y },
-                        enabled = connected,
+                ControlColumn(
+                    label = "Height  Z",
+                    readoutLabel = "R",
+                    axes = listOf("Z" to height),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    VerticalJog(
+                        onMove = { z -> height = z },
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1f),
+                            .fillMaxWidth(0.52f)
+                            .aspectRatio(0.52f), // same rendered height as the joystick
                     )
                 }
             }
-
-            Text(
-                "L %.2f, %.2f    R %.2f, %.2f".format(
-                    left.first, left.second, right.first, right.second,
-                ),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center,
-            )
         }
     }
 }
 
 @Composable
-private fun StickBlock(
+private fun ControlColumn(
     label: String,
+    readoutLabel: String,
+    axes: List<Pair<String, Float>>,
     modifier: Modifier = Modifier,
-    stick: @Composable () -> Unit,
+    control: @Composable () -> Unit,
 ) {
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        stick()
+        control()
         Spacer(Modifier.height(8.dp))
         Text(
             label,
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(10.dp))
+        AxisReadout(
+            label = readoutLabel,
+            axes = axes,
+            modifier = Modifier.fillMaxWidth(),
         )
     }
 }

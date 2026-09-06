@@ -75,8 +75,6 @@ fun VoiceScreen(
     ModeScaffold(
         title = "Voice",
         guidelines = VOICE_GUIDELINES,
-        connected = connected,
-        onRequestConnect = onRequestConnect,
         contentPadding = contentPadding,
     ) {
         val context = LocalContext.current

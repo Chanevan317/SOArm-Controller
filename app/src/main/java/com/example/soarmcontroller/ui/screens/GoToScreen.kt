@@ -34,6 +34,7 @@ import com.example.soarmcontroller.data.model.GoToPreset
 import com.example.soarmcontroller.ui.components.ExpandableCard
 import com.example.soarmcontroller.ui.components.Guideline
 import com.example.soarmcontroller.ui.components.NameDialog
+import com.example.soarmcontroller.ui.components.NotConnectedDialog
 import kotlinx.coroutines.launch
 
 private val GOTO_GUIDELINES = listOf(
@@ -63,8 +64,6 @@ fun GoToScreen(
     ModeScaffold(
         title = "Go To",
         guidelines = GOTO_GUIDELINES,
-        connected = connected,
-        onRequestConnect = onRequestConnect,
         contentPadding = contentPadding,
     ) {
         val scope = rememberCoroutineScope()
@@ -76,6 +75,7 @@ fun GoToScreen(
         var pitch by remember { mutableStateOf("") }
         var roll by remember { mutableStateOf("") }
         var showSave by remember { mutableStateOf(false) }
+        var warnBeforeSave by remember { mutableStateOf(false) }
 
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -94,7 +94,7 @@ fun GoToScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(onClick = {}, modifier = Modifier.weight(1f)) { Text("Stop") }
                 TextButton(
-                    onClick = { showSave = true },
+                    onClick = { if (connected) showSave = true else warnBeforeSave = true },
                     modifier = Modifier.weight(1f),
                     enabled = listOf(x, y, z, pitch, roll).any { it.isNotBlank() },
                 ) { Text("Save preset") }
@@ -130,6 +130,15 @@ fun GoToScreen(
                 "Reachability is checked on the laptop before any motion.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        if (warnBeforeSave) {
+            NotConnectedDialog(
+                proceedLabel = "Save anyway",
+                onProceed = { showSave = true },
+                onConnect = onRequestConnect,
+                onDismiss = { warnBeforeSave = false },
             )
         }
 
