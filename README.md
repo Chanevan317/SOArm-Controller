@@ -9,7 +9,7 @@ Python bridge turns that into motor commands for the arm over USB.
 ```
 ┌──────────────┐   Wi‑Fi (UDP / WebSocket)   ┌───────────────────────┐   USB serial   ┌─────────┐
 │  Android app │ ─────────────────────────▶ │  Laptop bridge         │ ─────────────▶ │ SO‑100  │
-│  (this repo) │   end‑effector targets,    │  Python + 🤗 LeRobot   │   Feetech bus  │  arm    │
+│  (this repo) │   end‑effector targets,    │  Python + LeRobot      │   Feetech bus  │  arm    │
 │              │   poses, voice commands    │  (inverse kinematics,  │                │         │
 │              │ ◀───────────────────────── │   safety limits)       │                │         │
 └──────────────┘   status / telemetry       └───────────────────────┘                └─────────┘
@@ -26,28 +26,34 @@ pipeline — the novel part is the phone app.
 
 ## Control modes
 
-Four tabs in a floating bottom navigation bar. Every mode is gated behind an active
-connection to the laptop — until then its controls are dimmed and inert.
+Four tabs in a floating bottom navigation bar. Every mode is fully usable without a
+connection — the controls just don't send anything yet. Actions that would read live
+data from the arm (saving a target, capturing a pose, adding a delay) pop a short
+"not connected" warning first.
 
 | Mode | What it does |
 | --- | --- |
-| **Jog** | Two on‑screen analog joysticks + buttons. Rate control: push a stick to move the gripper along an axis; release and it re‑centres. Pitch / gripper on buttons, plus a hardware‑style **STOP**. |
+| **Jog** | One analog joystick for the gripper's X / Y, a vertical slider for height (Z), split bars for wrist pitch and the gripper, and a pinned **STOP**. Rate control: push further to move faster; release and it re‑centres. |
 | **Go To** | Type an X / Y / Z target (mm, robot base frame) and optional wrist angles; the arm plans a path and moves there. Targets can be **saved as named presets**. |
 | **Sequence** | Release the motors, hand‑guide the arm to a pose, capture it, repeat. Insert delays between steps. Play back with joint‑space interpolation. Sequences can be **saved** and reloaded. |
 | **Voice** | Offline keyword recognition (Vosk). A fixed ~17‑word grammar (`stop`, `home`, `open`, `go to one`, …) triggers the primitives of the other modes. No cloud, no natural language. |
+
+Around the modes: a one‑time welcome screen on first launch, a splash screen on cold
+start, a System / Light / Dark theme picker, an About screen, and a connection sheet
+for the laptop's `host:port`.
 
 ---
 
 ## Project status
 
-This repo currently contains a **working UI shell plus the voice engine**. The
+This repo currently contains a **working UI plus the on‑device voice engine**. The
 network transport and all arm‑control logic are intentionally stubbed until the
 hardware bring‑up and an end‑to‑end validation run against a real SO‑100 fix the
 on‑wire protocol.
 
 | Area | State |
 | --- | --- |
-| App navigation, theming, all four screens | ✅ built |
+| App shell — onboarding, splash, theming, navigation, all four screens | ✅ built |
 | Voice recognition (Vosk, on‑device) | ✅ functional — recognises commands; does **not** send them yet |
 | Local persistence (Go To presets, sequences) | ✅ functional — JSON files in app storage |
 | Connection sheet (host / port entry, status) | ⚠️ UI only — simulates the handshake |
@@ -82,19 +88,23 @@ on‑wire protocol.
 - **[Vosk](https://alphacephei.com/vosk/)** (`com.alphacephei:vosk-android`) for
   offline speech. The ~40 MB `vosk-model-small-en-us` model is **not bundled** — it
   downloads once on first use into app storage.
-- **Persistence:** plain JSON files in `filesDir`, behind repository classes exposing
-  Kotlin `StateFlow`s. (Room was avoided because AGP 9's built‑in Kotlin makes the
-  KSP annotation processor it needs awkward to add; swapping the repos for Room later
-  touches no UI code.)
-- No dependency injection framework, no navigation library — state is hoisted and
+- **`androidx.core:core-splashscreen`** for the cold‑start splash.
+- **Persistence:** plain JSON files in `filesDir` behind repository classes that
+  expose Kotlin `StateFlow`s, plus a small `SharedPreferences` store for the theme
+  choice and the onboarding flag. (Room was avoided because AGP 9's built‑in Kotlin
+  makes the KSP annotation processor it needs awkward to add; swapping the repos for
+  Room later touches no UI code.)
+- No dependency‑injection framework, no navigation library — state is hoisted and
   passed explicitly; the four modes switch on a `when`.
+- The build ships **arm64‑v8a only** (`ndk { abiFilters += "arm64-v8a" }`) to keep
+  the APK small; drop that block to package every ABI.
 
 ### Design language
 
 Minimalist, drawing from ColorOS 16 system apps. Orange accent (`#FF6A2C`, echoing
 the SO‑100's printed plastic). Light mode on `#F5F5F5`; dark mode is **true black**
-(`#000000`) with `#151515` surfaces. Theme follows the system by default with a
-manual override in the overflow menu / About screen.
+(`#000000`) with `#151515` surfaces. Theme is **System / Light / Dark**, chosen from
+the top‑bar overflow menu or the About screen and remembered across launches.
 
 ---
 
@@ -102,28 +112,36 @@ manual override in the overflow menu / About screen.
 
 ```
 app/src/main/
-├── AndroidManifest.xml           RECORD_AUDIO, INTERNET permissions
-├── res/drawable-nodpi/so100.webp About‑screen hero image
+├── AndroidManifest.xml               RECORD_AUDIO, INTERNET, ACCESS_NETWORK_STATE
+├── res/
+│   ├── drawable-nodpi/so100.webp     welcome / about hero image
+│   ├── drawable-nodpi/so100_logo.webp  app‑icon artwork
+│   ├── mipmap-*/                     launcher icon (raster + adaptive)
+│   └── values/themes.xml             app theme + splash theme
 └── java/com/example/soarmcontroller/
-    ├── MainActivity.kt           entry point, theme resolution
-    ├── data/                     local persistence
-    │   ├── model/Models.kt       GoToPreset, SeqStep, SequenceRecord
-    │   ├── JsonFileStore.kt      atomic JSON read/write
-    │   ├── PresetRepository.kt   Go To presets  -> goto_presets.json
-    │   ├── SequenceRepository.kt taught sequences -> sequences.json
-    │   └── AppStore.kt           container, created once at app root
-    ├── voice/                    on‑device speech
-    │   ├── VoiceModel.kt         one‑time model download + unpack
-    │   └── VoiceRecognizer.kt    Vosk wrapper, grammar‑constrained, StateFlow
+    ├── MainActivity.kt               entry point, splash, theme, onboarding gate
+    ├── data/
+    │   ├── model/Models.kt           GoToPreset, SeqStep, SequenceRecord
+    │   ├── JsonFileStore.kt          atomic JSON read/write
+    │   ├── PresetRepository.kt       Go To presets   -> goto_presets.json
+    │   ├── SequenceRepository.kt     taught sequences -> sequences.json
+    │   ├── Settings.kt               SharedPreferences: theme + onboarded flag
+    │   └── AppStore.kt               repository container
+    ├── voice/
+    │   ├── VoiceModel.kt             one‑time model download + unpack
+    │   └── VoiceRecognizer.kt        Vosk wrapper, grammar‑constrained, StateFlow
     └── ui/
-        ├── SoArmApp.kt           scaffold: top bar + nav + About overlay
-        ├── AppInfo.kt            REPO_URL and other static metadata
-        ├── theme/                Color, Type, Shape, Theme
-        ├── navigation/Destination.kt   the four tabs
-        ├── connection/           ConnectionController + bottom sheet
-        ├── components/           Joystick, FloatingNavBar, GuidelinesDialog,
-        │                         ExpandableCard, LevelBars, ConnectionGate, …
-        └── screens/              Jog, GoTo, Sequence, Voice, About, ModeScaffold
+        ├── SoArmApp.kt               scaffold: top bar + nav + animated About overlay
+        ├── AppInfo.kt                REPO_URL and other static metadata
+        ├── theme/                    Color, Type, Shape, Theme
+        ├── navigation/Destination.kt the four tabs
+        ├── connection/              ConnectionController + bottom sheet
+        ├── components/              Joystick, VerticalJog, SplitAction, AxisReadout,
+        │                            FloatingNavBar, SoArmTopBar, ConnectionPill,
+        │                            ExpandableCard, LevelBars, GuidelinesDialog,
+        │                            NameDialog, NotConnectedDialog
+        └── screens/                 Welcome, Jog, GoTo, Sequence, Voice, About,
+                                     ModeScaffold
 ```
 
 ---
@@ -145,11 +163,8 @@ adb shell am start -n com.example.soarmcontroller/.MainActivity
 JAVA_HOME=/opt/android-studio/jbr ./gradlew :app:installDebug
 ```
 
-Or open the project in Android Studio and press Run.
-
-> The debug APK is large (~55 MB) because Vosk ships native libraries for four
-> CPU architectures. A release build with `ndk { abiFilters += "arm64-v8a" }` (or
-> ABI splits) trims most of that.
+Or open the project in Android Studio and press Run. The debug APK is ~28 MB
+(arm64‑only); the ~40 MB speech model is fetched at runtime, not packaged.
 
 ### Laptop side (for later)
 
@@ -174,8 +189,8 @@ example before wiring this app's transport.
 3. Wire this app's network transport (start with the Jog twist packet).
 4. Fill in Go To motion planning, Sequence record/replay, and map Voice tokens to
    primitives — all through the LeRobot safety pipeline.
-5. Optional later: an AR / spatial‑tracking mode (ARCore is certified on the target
-   device) as a second input source producing the same packets.
+5. Optional later: an AR / spatial‑tracking mode (ARCore) as a second input source
+   producing the same packets.
 
 ---
 
