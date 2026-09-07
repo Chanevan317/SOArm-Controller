@@ -1,0 +1,53 @@
+# Copy to config.yaml and edit for your setup.
+
+robot:
+  type: so101              # so100 | so101  (both use the same follower class)
+  port: /dev/ttyACM0       # scripts/find_port.py
+  id: soarm               # calibration profile id (lerobot-calibrate --robot.id=...)
+  use_degrees: true        # keep true; the bridge assumes joints are in degrees
+
+kinematics:
+  enabled: true
+  # scripts/fetch_urdf.py writes both:
+  #   so101_new_calib.urdf         needs the .stl meshes next to it (placo loads them)
+  #   so101_new_calib_nomesh.urdf  meshes stripped — IK works with no mesh files
+  urdf_path: ./assets/so101_new_calib_nomesh.urdf
+  target_frame: gripper_frame_link             # fingertip frame in the URDF
+
+server:
+  host: 0.0.0.0
+  port: 8765
+
+control:
+  fps: 30                  # control loop rate
+  telemetry_hz: 10         # state broadcast rate to the phone
+
+# ---- SAFETY: these are PLACEHOLDERS. Run `lerobot-find-joint-limits` and replace. ----
+safety:
+  # order: shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll, gripper
+  joint_min_deg: [-110, -100, -100, -100, -180,   0]
+  joint_max_deg: [ 110,  100,  100,  100,  180, 100]
+  # end-effector box in metres, robot base frame (x fwd, y left, z up-ish — verify!)
+  workspace_min_m: [-0.30, -0.30, 0.02]
+  workspace_max_m: [ 0.32,  0.30, 0.35]
+  max_joint_step_deg: 6.0   # largest change any joint may be commanded per control tick
+  watchdog_timeout_s: 0.4   # no fresh jog/goto packet for this long -> hold position
+
+jog:
+  # indexed by the phone's speed chip: 0 slow, 1 medium, 2 fast
+  speed_scale_mps:  [0.03, 0.07, 0.13]   # EE translation speed at full stick
+  pitch_speed_dps:  [15,   30,   55]     # wrist_flex deg/s at full deflection
+  grip_speed_pps:   [60,   120,  200]    # gripper %/s at full deflection
+
+goto:
+  move_time_s: 2.5          # time to interpolate to a Go To target
+
+sequence:
+  replay_joint_speed_dps: 40.0   # max joint speed during sequence playback
+  default_delay_ms: 500
+
+voice:
+  pulse_ms: 700            # how long a directional keyword nudges the arm
+  pulse_speed_index: 0     # which jog speed tier a voice pulse uses
+
+home_joints_deg: [0.0, -90.0, 90.0, 0.0, 0.0, 50.0]   # "home" / rest pose

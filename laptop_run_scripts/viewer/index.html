@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SOArm viewer</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #101012; color: #e8e8e8;
+               font: 13px/1.5 system-ui, sans-serif; overflow: hidden; }
+  #canvas { position: fixed; inset: 0; }
+  #hud { position: fixed; top: 12px; left: 12px; background: rgba(20,20,22,.82);
+         border: 1px solid #333; border-radius: 10px; padding: 12px 14px;
+         backdrop-filter: blur(6px); min-width: 250px; max-width: 340px; }
+  #hud h1 { margin: 0 0 8px; font-size: 13px; letter-spacing: .04em; color: #ff7c45; }
+  #hud label { display: block; font-size: 11px; color: #999; margin-top: 8px; }
+  #hud input { width: 100%; background: #000; border: 1px solid #444; color: #eee;
+               border-radius: 6px; padding: 5px 7px; margin-top: 3px; }
+  #hud button { margin-top: 8px; width: 100%; padding: 6px; border-radius: 6px;
+                border: 1px solid #555; background: #1d1d1f; color: #eee; cursor: pointer; }
+  #hud button:hover { background: #2a2a2d; }
+  .row { display: flex; justify-content: space-between; margin-top: 4px; }
+  .row span:first-child { color: #999; }
+  .pill { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; }
+  .ok { background: #14532d; color: #bbf7d0; }
+  .bad { background: #5b1717; color: #fecaca; }
+  .warn { background: #5b4711; color: #fde68a; }
+  #joints { margin-top: 8px; font-family: ui-monospace, monospace; font-size: 11px;
+            color: #bbb; white-space: pre; }
+  #msg { margin-top: 8px; font-size: 11px; white-space: pre-wrap; }
+  #msg.err { color: #fca5a5; }
+  #msg.info { color: #93c5fd; }
+</style>
+</head>
+<body>
+<div id="canvas"></div>
+<div id="hud">
+  <h1>SOArm viewer</h1>
+  <div class="row"><span>link</span><span id="link" class="pill bad">offline</span></div>
+  <div class="row"><span>model</span><span id="model" class="pill warn">loading…</span></div>
+  <div class="row"><span>mode</span><span id="mode">—</span></div>
+  <div class="row"><span>e-stop</span><span id="stop">—</span></div>
+  <div class="row"><span>EE (m)</span><span id="ee">—</span></div>
+  <div id="joints">—</div>
+  <label>bridge host</label>
+  <input id="host" value="127.0.0.1" />
+  <label>port</label>
+  <input id="port" value="8765" />
+  <button id="connect">connect</button>
+  <div id="msg" class="info"></div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+    "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+    "urdf-loader": "https://cdn.jsdelivr.net/npm/urdf-loader@0.12/src/URDFLoader.js"
+  }
+}
+</script>
+
+<script>
+// Surface anything that goes wrong before/inside the module.
+const msgEl = document.getElementById("msg");
+function setMsg(text, kind) { msgEl.textContent = text || ""; msgEl.className = kind || "info"; }
+window.addEventListener("error", e => {
+  if (e.message && /import|module|fetch|Failed/i.test(e.message))
+    setMsg("script error: " + e.message + "\n(likely a CDN import failed — check the Network tab)", "err");
+});
+window.addEventListener("unhandledrejection", e =>
+  setMsg("load failed: " + (e.reason && e.reason.message ? e.reason.message : e.reason), "err"));
+</script>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { STLLoader } from "three/addons/loaders/STLLoader.js";
+import URDFLoader from "urdf-loader";
+
+const DEG2RAD = Math.PI / 180;
+// Full URDF (vendored). Real STL meshes if assets/*.stl are present
+// (scripts/fetch_meshes.py); otherwise it falls back to a stick figure.
+const URDF_URL = "../assets/so101_new_calib.urdf";
+const $ = id => document.getElementById(id);
+
+// ---------- scene ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+$("canvas").appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x101012);
+
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.01, 100);
+camera.position.set(0.5, 0.45, 0.6);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.12, 0);
+controls.update();
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x333333, 1.1));
+const key = new THREE.DirectionalLight(0xffffff, 0.8);
+key.position.set(1, 2, 1.5);
+scene.add(key);
+scene.add(new THREE.GridHelper(1, 20, 0x444444, 0x222222));
+scene.add(new THREE.AxesHelper(0.1));
+
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+(function loop() { requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
+
+// ---------- URDF ----------
+let robot = null;
+let meshCount = 0;
+const stlLoader = new STLLoader();
+const meshMat = new THREE.MeshPhongMaterial({ color: 0xdadada, flatShading: false });
+
+const loader = new URDFLoader();
+// meshes are referenced relative to the .urdf ("assets/foo.stl") but are vendored
+// flat next to it -> ../assets/<basename>. Missing meshes just return null.
+loader.loadMeshCb = (path, _manager, done) => {
+  const url = "../assets/" + path.split(/[\\/]/).pop();
+  stlLoader.load(
+    url,
+    geom => { meshCount++; done(new THREE.Mesh(geom, meshMat)); },
+    undefined,
+    () => done(null),          // 404 / parse error -> no visual for this link
+  );
+};
+
+const boneMat = new THREE.MeshPhongMaterial({ color: 0xff8a55 });
+const jointMat = new THREE.MeshPhongMaterial({ color: 0x888888 });
+const UP = new THREE.Vector3(0, 1, 0);
+
+function buildStickFigure(root) {
+  // 1) a bone from each frame's origin to its child's origin (parented to the
+  //    child so it rigidly precedes that joint's rotation)
+  const bones = [];
+  root.traverse(obj => {
+    const d = obj.position.length();
+    if (obj.parent && obj.parent !== root && d > 0.004) {
+      const g = new THREE.CylinderGeometry(0.007, 0.007, d, 10);
+      g.translate(0, d / 2, 0);                       // base at origin, tip at +Y
+      const m = new THREE.Mesh(g, boneMat);
+      m.quaternion.setFromUnitVectors(UP, obj.position.clone().normalize());
+      bones.push([obj.parent, m]);
+    }
+  });
+  bones.forEach(([parent, m]) => parent.add(m));
+
+  // 2) a knuckle on every moving joint
+  for (const j of Object.values(root.joints || {})) {
+    if (j.jointType === "fixed") continue;
+    j.add(new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, 0.026, 16), jointMat));
+  }
+}
+
+loader.load(URDF_URL, result => {
+  robot = result;
+  robot.rotation.x = -Math.PI / 2;          // URDF Z-up -> three Y-up
+  scene.add(robot);
+  $("model").textContent = "loaded";
+  $("model").className = "pill ok";
+  // STL loads are async — decide after they settle whether we got real meshes
+  setTimeout(() => {
+    if (meshCount === 0) {
+      buildStickFigure(robot);
+      setMsg("no meshes yet — stick figure. They download on the next  python run_bridge.py  (or run scripts/fetch_meshes.py).", "info");
+    } else {
+      $("model").textContent = `loaded (${meshCount} meshes)`;
+      setMsg("", "info");
+    }
+  }, 2500);
+}, undefined, err => {
+  $("model").textContent = "failed";
+  $("model").className = "pill bad";
+  setMsg("Could not load " + URDF_URL + "\n" +
+         "Open this page via  python run_bridge.py  so /assets/ is reachable.\n\n" + err, "err");
+});
+
+function applyJoints(joints) {
+  if (!robot) return;
+  for (const [name, valDeg] of Object.entries(joints)) {
+    const j = robot.joints[name];
+    if (!j) continue;
+    if (name === "gripper") {
+      const lo = j.limit.lower ?? 0, hi = j.limit.upper ?? 1;
+      j.setJointValue(lo + Math.max(0, Math.min(1, valDeg / 100)) * (hi - lo));
+    } else {
+      j.setJointValue(valDeg * DEG2RAD);
+    }
+  }
+}
+
+// ---------- bridge WebSocket ----------
+let ws = null;
+function setLink(s) {
+  $("link").textContent = s;
+  $("link").className = "pill " + (s === "online" ? "ok" : s === "connecting" ? "warn" : "bad");
+}
+
+function connect() {
+  if (ws) { try { ws.close(); } catch (e) {} }
+  const host = $("host").value.trim(), port = $("port").value.trim();
+  setLink("connecting");
+  try { ws = new WebSocket(`ws://${host}:${port}`); }
+  catch (e) { setLink("offline"); setMsg("bad ws url: " + e, "err"); return; }
+
+  ws.onopen = () => { setLink("online"); ws.send(JSON.stringify({ type: "hello", client: "soarm-viewer", proto: 1 })); };
+  ws.onclose = () => setLink("offline");
+  ws.onerror = () => { setLink("offline"); setMsg("WebSocket error — is  python run_bridge.py --sim  running on " + host + ":" + port + " ?", "err"); };
+  ws.onmessage = ev => {
+    let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (m.type === "state") {
+      $("mode").textContent = m.mode;
+      $("stop").innerHTML = m.stopped ? '<span class="pill bad">STOPPED</span>' : '<span class="pill ok">run</span>';
+      $("ee").textContent = m.ee ? `${m.ee.x.toFixed(3)}, ${m.ee.y.toFixed(3)}, ${m.ee.z.toFixed(3)}` : "—";
+      $("joints").textContent = Object.entries(m.joints).map(([k, v]) => `${k.padEnd(14)}${v.toFixed(1)}`).join("\n");
+      applyJoints(m.joints);
+    } else if (m.type === "welcome") {
+      setMsg("connected to " + m.robot + (m.kinematics ? " (IK on)" : " (no IK)"), "info");
+    } else if (m.type === "error") {
+      setMsg("bridge: " + m.msg, "err");
+    }
+  };
+}
+
+$("connect").addEventListener("click", connect);
+connect();
+</script>
+</body>
+</html>

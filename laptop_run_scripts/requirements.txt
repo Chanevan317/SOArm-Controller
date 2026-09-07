@@ -1,0 +1,14 @@
+# The bridge runs inside the global lerobot env:
+#   source ~/.venvs/lerobot/bin/activate
+#
+# That env already provides everything the bridge imports:
+#   lerobot        (with the [feetech] and [kinematics] extras)
+#   placo          inverse kinematics
+#   numpy
+#   websockets     >= 12
+#   pyyaml
+#
+# This file is only a checklist. If you build a fresh env instead:
+#
+#   uv pip install --torch-backend cpu "lerobot[feetech,kinematics]"
+#   uv pip install websockets pyyaml
