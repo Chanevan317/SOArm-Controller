@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import com.example.soarmcontroller.data.SequenceRepository
 import com.example.soarmcontroller.data.model.SeqStep
 import com.example.soarmcontroller.data.model.SequenceRecord
+import com.example.soarmcontroller.net.BridgeClient
 import com.example.soarmcontroller.ui.components.ExpandableCard
 import com.example.soarmcontroller.ui.components.Guideline
 import com.example.soarmcontroller.ui.components.NameDialog
@@ -57,6 +58,7 @@ private val SEQ_GUIDELINES = listOf(
 @Composable
 fun SequenceScreen(
     repo: SequenceRepository,
+    bridge: BridgeClient,
     connected: Boolean,
     onRequestConnect: () -> Unit,
     contentPadding: PaddingValues,
@@ -68,6 +70,7 @@ fun SequenceScreen(
     ) {
         val scope = rememberCoroutineScope()
         val saved by repo.sequences.collectAsState()
+        val seq by bridge.seq.collectAsState()
 
         val steps = remember { mutableStateListOf<SeqStep>() }
         var nextPoseId by remember { mutableIntStateOf(1) }
@@ -75,7 +78,19 @@ fun SequenceScreen(
         var showSave by remember { mutableStateOf(false) }
         var pendingStep by remember { mutableStateOf<(() -> Unit)?>(null) }
 
+        // Ordered play payload: pose steps map to their capture order on the arm.
+        fun playSteps(): List<Map<String, Any>> {
+            var poseIdx = 0
+            return steps.map { s ->
+                when (s) {
+                    is SeqStep.Pose -> mapOf<String, Any>("pose" to poseIdx++)
+                    is SeqStep.Delay -> mapOf<String, Any>("delay_ms" to s.millis)
+                }
+            }
+        }
+
         val addPose: () -> Unit = {
+            bridge.seqCmd("capture")
             steps.add(SeqStep.Pose("Pose $nextPoseId"))
             nextPoseId++
         }
@@ -90,7 +105,10 @@ fun SequenceScreen(
                 Text("Release motors (move by hand)", style = MaterialTheme.typography.bodyLarge)
                 Switch(
                     checked = motorsReleased,
-                    onCheckedChange = { motorsReleased = it },
+                    onCheckedChange = {
+                        motorsReleased = it
+                        bridge.seqCmd(if (it) "release" else "hold")
+                    },
                     colors = SwitchDefaults.colors(
                         uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -152,17 +170,28 @@ fun SequenceScreen(
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(
-                    onClick = {},
-                    enabled = steps.isNotEmpty(),
+                    onClick = { bridge.seqCmd("play", steps = playSteps()) },
+                    enabled = connected && steps.any { it is SeqStep.Pose },
                     modifier = Modifier.weight(1f),
-                ) { Text("Play") }
-                OutlinedButton(onClick = {}, modifier = Modifier.weight(1f)) { Text("Stop") }
+                ) { Text(if (seq.playing) "Playing…" else "Play") }
+                OutlinedButton(
+                    onClick = { bridge.seqCmd("stop") },
+                    enabled = connected,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Stop") }
                 TextButton(
                     onClick = { showSave = true },
                     enabled = steps.isNotEmpty(),
                     modifier = Modifier.weight(1f),
                 ) { Text("Save") }
             }
+
+            Text(
+                "Captured on arm: ${seq.captured}" +
+                    (if (seq.released) " · motors released" else ""),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
             ExpandableCard(title = "Saved sequences (${saved.size})") {
                 if (saved.isEmpty()) {

@@ -29,6 +29,7 @@ import socketserver
 import subprocess
 import sys
 import threading
+import socket
 import webbrowser
 from pathlib import Path
 
@@ -39,6 +40,28 @@ from soarm_bridge.safety import Safety
 from soarm_bridge.server import Server
 
 ROOT = Path(__file__).resolve().parent
+
+
+def _lan_ips() -> list[str]:
+    """Best-effort list of this machine's non-loopback IPv4 addresses."""
+    ips: set[str] = set()
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = info[4][0]
+            if not ip.startswith("127."):
+                ips.add(ip)
+    except OSError:
+        pass
+    # UDP-connect trick: the address the OS would use to reach an external host
+    for probe in ("192.168.1.1", "10.0.0.1", "8.8.8.8"):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect((probe, 80))
+            ips.add(s.getsockname()[0])
+            s.close()
+        except OSError:
+            pass
+    return sorted(i for i in ips if not i.startswith("127."))
 
 
 class _QuietHandler(http.server.SimpleHTTPRequestHandler):
@@ -128,6 +151,15 @@ async def main() -> None:
     loop_obj = ControlLoop(arm, safety, cfg)
     server = Server(loop_obj, cfg.server.host, cfg.server.port)
     loop_obj.server = server
+
+    from soarm_bridge.discovery import start_discovery_responder
+
+    start_discovery_responder(cfg.server.port, cfg.robot.type)
+
+    ips = _lan_ips()
+    log.info("phone -> just open the app; it finds this bridge on the network.")
+    if ips:
+        log.info("        (manual fallback: %s  port %d)", ips[0], cfg.server.port)
 
     httpd = None
     if not args.no_viewer:

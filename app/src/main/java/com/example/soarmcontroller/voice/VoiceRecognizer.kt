@@ -3,8 +3,11 @@ package com.example.soarmcontroller.voice
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -36,6 +39,10 @@ class VoiceRecognizer(
 
     private val _state = MutableStateFlow(VoiceState())
     val state: StateFlow<VoiceState> = _state.asStateFlow()
+
+    /** Every recognised keyword, including immediate repeats of the same word. */
+    private val _recognized = MutableSharedFlow<String>(extraBufferCapacity = 16)
+    val recognized: SharedFlow<String> = _recognized.asSharedFlow()
 
     private var model: Model? = null
     private var speech: SpeechService? = null
@@ -97,6 +104,7 @@ class VoiceRecognizer(
         val t = hypothesis?.let { runCatching { JSONObject(it).optString("text") }.getOrNull() }
         if (!t.isNullOrBlank()) {
             _state.value = _state.value.copy(lastCommand = t, partial = "")
+            _recognized.tryEmit(t)
         }
     }
 

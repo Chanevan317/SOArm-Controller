@@ -48,6 +48,7 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.vosk.android)
     implementation("net.java.dev.jna:jna:5.13.0@aar")
+    implementation(libs.okhttp)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)

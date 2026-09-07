@@ -18,9 +18,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 enum class Destination(
     val label: String,
     val icon: ImageVector,
+    /** Mode name sent to the bridge (`{"type":"mode","mode":wire}`). */
+    val wire: String,
 ) {
-    JOG("Jog", Icons.Filled.Gamepad),
-    GO_TO("Go To", Icons.Filled.MyLocation),
-    SEQUENCE("Sequence", Icons.Filled.Route),
-    VOICE("Voice", Icons.Filled.Mic),
+    JOG("Jog", Icons.Filled.Gamepad, "jog"),
+    GO_TO("Go To", Icons.Filled.MyLocation, "goto"),
+    SEQUENCE("Sequence", Icons.Filled.Route, "sequence"),
+    VOICE("Voice", Icons.Filled.Mic, "voice"),
 }

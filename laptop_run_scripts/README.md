@@ -43,7 +43,7 @@ laptop_run_scripts/
 │       ├── base.py          Controller interface
 │       ├── jog.py           velocity -> integrated EE target -> IK
 │       ├── goto.py          target pose -> joint-space interpolation
-│       ├── sequence.py      torque release, capture, joint-space replay
+│       ├── sequence.py      pose mode: sliders / hand-teach -> capture -> replay
 │       └── voice.py         keyword -> timed motion primitives / e-stop / home
 ├── viewer/
 │   └── index.html          browser 3D view — mirrors the bridge's telemetry onto the URDF
@@ -88,6 +88,18 @@ skips the download (viewer shows a stick figure instead).
 | `--no-viewer` / `--no-open` | skip the web page / skip opening the browser |
 | `--no-fetch` | don't auto-download meshes |
 | `--robot so100\|so101`, `--port` | override `config.yaml` |
+
+### Building pose sequences in the browser
+
+The viewer's **pose mode** button puts the bridge into `sequence` mode — the same
+mode the app's Sequence screen drives. Six joint sliders move the arm directly in
+the sim; drag to a pose → **Capture** → repeat → **Play** interpolates through
+them; **Clear** / per-step delete to edit.
+
+Use it with launch #2 (`python run_bridge.py`, sim + app): navigate the app to
+its Sequence screen for the UX, and — since the app has no transport yet — click
+**pose mode** in the viewer to actually put the bridge there and capture with the
+sliders. Not with `--demo` running (its bot fights the mode switch).
 
 ### Real-arm first time
 

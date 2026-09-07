@@ -31,6 +31,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.soarmcontroller.data.PresetRepository
 import com.example.soarmcontroller.data.model.GoToPreset
+import com.example.soarmcontroller.net.BridgeClient
 import com.example.soarmcontroller.ui.components.ExpandableCard
 import com.example.soarmcontroller.ui.components.Guideline
 import com.example.soarmcontroller.ui.components.NameDialog
@@ -43,12 +44,14 @@ private val GOTO_GUIDELINES = listOf(
         "Millimetres for X / Y / Z, degrees for pitch / roll, in the robot base frame.",
     ),
     Guideline(
-        "Move to target",
-        "Plans a straight path and drives the gripper there at a limited speed.",
+        "Reachable range",
+        "Roughly X 120–320, Y −200–200, Z 40–300 mm, but not all corners at once. " +
+            "Home is about X 250, Y 0, Z 140. Start near there.",
     ),
     Guideline(
-        "Bounds",
-        "Points out of reach or outside the safe area are rejected, not attempted.",
+        "Move to target",
+        "Solves IK, checks it's reachable, interpolates the joints there, and " +
+            "closes the gripper on arrival.",
     ),
     Guideline("Orientation", "Leave pitch / roll blank to keep the wrist where it is."),
     Guideline("Save preset", "Stores the current values locally to recall later."),
@@ -57,6 +60,7 @@ private val GOTO_GUIDELINES = listOf(
 @Composable
 fun GoToScreen(
     repo: PresetRepository,
+    bridge: BridgeClient,
     connected: Boolean,
     onRequestConnect: () -> Unit,
     contentPadding: PaddingValues,
@@ -68,6 +72,8 @@ fun GoToScreen(
     ) {
         val scope = rememberCoroutineScope()
         val presets by repo.presets.collectAsState()
+        val tele by bridge.telemetry.collectAsState()
+        val eeMm = tele.ee?.let { Triple(it.x * 1000, it.y * 1000, it.z * 1000) }
 
         var x by remember { mutableStateOf("") }
         var y by remember { mutableStateOf("") }
@@ -78,21 +84,61 @@ fun GoToScreen(
         var warnBeforeSave by remember { mutableStateOf(false) }
 
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                NumField("X (mm)", x, { x = it }, Modifier.weight(1f))
-                NumField("Y (mm)", y, { y = it }, Modifier.weight(1f))
-                NumField("Z (mm)", z, { z = it }, Modifier.weight(1f))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    eeMm?.let { "Now: X %.0f  Y %.0f  Z %.0f".format(it.first, it.second, it.third) }
+                        ?: "Now: — (connect for live position)",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (eeMm != null) {
+                    TextButton(onClick = {
+                        x = "%.0f".format(eeMm.first)
+                        y = "%.0f".format(eeMm.second)
+                        z = "%.0f".format(eeMm.third)
+                    }) { Text("Use current") }
+                }
             }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                NumField("X (mm)", x, { x = it }, Modifier.weight(1f), placeholder = "120–320")
+                NumField("Y (mm)", y, { y = it }, Modifier.weight(1f), placeholder = "−200–200")
+                NumField("Z (mm)", z, { z = it }, Modifier.weight(1f), placeholder = "40–300")
+            }
+            Text(
+                "Reachable ≈ X 120–320 · Y ±200 · Z 40–300 mm (not every corner). " +
+                    "Home ≈ 250 / 0 / 140.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 NumField("Pitch °", pitch, { pitch = it }, Modifier.weight(1f))
                 NumField("Roll °", roll, { roll = it }, Modifier.weight(1f))
             }
 
-            Button(onClick = {}, modifier = Modifier.fillMaxWidth()) {
-                Text("Move to target")
-            }
+            val haveXyz = x.isNotBlank() && y.isNotBlank() && z.isNotBlank()
+            Button(
+                onClick = {
+                    bridge.goTo(
+                        x = x.toDoubleOrNull() ?: 0.0,
+                        y = y.toDoubleOrNull() ?: 0.0,
+                        z = z.toDoubleOrNull() ?: 0.0,
+                        pitch = pitch.toDoubleOrNull(),
+                        roll = roll.toDoubleOrNull(),
+                    )
+                },
+                enabled = connected && haveXyz,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Move to target") }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = {}, modifier = Modifier.weight(1f)) { Text("Stop") }
+                OutlinedButton(
+                    onClick = { bridge.stop() },
+                    enabled = connected,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Stop") }
                 TextButton(
                     onClick = { if (connected) showSave = true else warnBeforeSave = true },
                     modifier = Modifier.weight(1f),
@@ -218,11 +264,13 @@ private fun NumField(
     value: String,
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
+    placeholder: String? = null,
 ) {
     OutlinedTextField(
         value = value,
         onValueChange = { s -> onValueChange(s.filter { it.isDigit() || it == '-' || it == '.' }) },
         label = { Text(label) },
+        placeholder = placeholder?.let { { Text(it) } },
         singleLine = true,
         modifier = modifier,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),

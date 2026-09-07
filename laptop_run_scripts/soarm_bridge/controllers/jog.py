@@ -23,11 +23,6 @@ from .base import Controller, Ctx
 
 log = logging.getLogger("soarm.jog")
 
-try:
-    from lerobot.utils.rotation import Rotation
-except Exception:  # noqa: BLE001
-    from scipy.spatial.transform import Rotation  # type: ignore
-
 
 class JogController(Controller):
     name = "jog"
@@ -39,12 +34,13 @@ class JogController(Controller):
 
     def reset(self) -> None:
         self.vx = self.vy = self.vz = 0.0
-        self.pitch = self.grip = 0.0
+        self.pitch = self.roll = self.grip = 0.0
         self.speed = 1
         self.enabled = False
         self._ee: np.ndarray | None = None       # target EE xyz (m)
         self._R0: np.ndarray | None = None       # seed EE rotation (3x3)
-        self._pitch_off = 0.0                    # accumulated pitch (rad)
+        self._pitch_off = 0.0                    # held wrist_flex offset (deg)
+        self._roll_off = 0.0                     # held wrist_roll offset (deg)
         self._grip_pos = 0.0                     # target gripper (0..100)
         self._q_seed: np.ndarray | None = None
 
@@ -58,6 +54,7 @@ class JogController(Controller):
         self.vy = float(msg.get("vy", 0.0))
         self.vz = float(msg.get("vz", 0.0))
         self.pitch = float(msg.get("pitch", 0.0))
+        self.roll = float(msg.get("roll", 0.0))
         self.grip = float(msg.get("grip", 0.0))
         self.speed = int(np.clip(msg.get("speed", 1), 0, 2))
         self.enabled = bool(msg.get("enabled", True))
@@ -69,6 +66,7 @@ class JogController(Controller):
         self._ee = t[:3, 3].copy()
         self._R0 = t[:3, :3].copy()
         self._pitch_off = 0.0
+        self._roll_off = 0.0
         self._grip_pos = float(q[J["gripper"]])
         self._q_seed = q.copy()
 
@@ -88,25 +86,46 @@ class JogController(Controller):
 
         jc = ctx.config.jog
         lin = jc.speed_scale_mps[self.speed]
-        # phone axes -> base axes (VERIFY: sign/order on real hardware)
-        self._ee = self._ee + np.array([self.vx, self.vy, self.vz], float) * lin * dt
-        self._ee = ctx.safety.clamp_workspace(self._ee)
+        # phone axes -> base axes (x forward, y left, z up). Verify signs visually.
+        prev_ee = self._ee.copy()
+        self._ee = ctx.safety.clamp_workspace(
+            self._ee + np.array([self.vx, self.vy, self.vz], float) * lin * dt
+        )
 
-        # pitch: accumulate a rotation about the seed frame's local Y
-        self._pitch_off += np.deg2rad(jc.pitch_speed_dps[self.speed]) * self.pitch * dt
-        r_des = self._R0 @ Rotation.from_rotvec([0.0, self._pitch_off, 0.0]).as_matrix()
-
+        # Position-only IK — a 5-DOF arm can't hold orientation AND track XY,
+        # so we let orientation float and drive wrist pitch as a joint offset.
         t_des = np.eye(4)
-        t_des[:3, :3] = r_des
+        t_des[:3, :3] = self._R0
         t_des[:3, 3] = self._ee
+        q_ik = ctx.arm.ik(self._q_seed, t_des, orientation_weight=0.0).astype(float)
 
-        q = ctx.arm.ik(self._q_seed, t_des).astype(float)
+        # If IK can't actually reach the target, we've hit the edge of the
+        # arm's reach. Hold there: keep the last good joints (don't send a
+        # folded, self-colliding solution) and stop the target creeping.
+        reached = ctx.arm.fk(q_ik)[:3, 3]
+        if np.linalg.norm(reached - self._ee) > 0.010:
+            self._ee = prev_ee
+            q_ik = self._q_seed
+        else:
+            self._q_seed = q_ik.copy()
 
+        # wrist pitch / roll: held joint offsets, not fed back to IK. Bounded so
+        # the wrist can't curl back into the forearm.
+        pl = getattr(jc, "pitch_limit_deg", 55.0)
+        rl = getattr(jc, "roll_limit_deg", 90.0)
+        self._pitch_off = float(
+            np.clip(self._pitch_off + jc.pitch_speed_dps[self.speed] * self.pitch * dt, -pl, pl)
+        )
+        self._roll_off = float(
+            np.clip(self._roll_off + jc.pitch_speed_dps[self.speed] * self.roll * dt, -rl, rl)
+        )
         # gripper: integrate directly
         self._grip_pos = float(
             np.clip(self._grip_pos + jc.grip_speed_pps[self.speed] * self.grip * dt, 0.0, 100.0)
         )
-        q[J["gripper"]] = self._grip_pos
 
-        self._q_seed = q.copy()
-        return q
+        q_out = q_ik.copy()
+        q_out[J["wrist_flex"]] += self._pitch_off
+        q_out[J["wrist_roll"]] += self._roll_off
+        q_out[J["gripper"]] = self._grip_pos
+        return q_out

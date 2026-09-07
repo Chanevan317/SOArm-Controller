@@ -30,7 +30,8 @@ jog          {"type":"jog",
               "vx": -1..1, "vy": -1..1,   # left stick, normalised
               "vz": -1..1,                # vertical slider
               "pitch": -1..1,             # wrist pitch bar   (- down, + up)
-              "grip":  -1..1,             # gripper bar       (- close, + open)
+              "roll":  -1..1,             # wrist roll bar    (- ccw, + cw)
+              "grip":  -1..1,             # gripper bar       (- close/0, + open/100)
               "speed": 0|1|2,             # slow / medium / fast chip
               "enabled": true}            # false = user released everything
              `enabled:false` or no frame within safety.watchdog_timeout_s -> hold.
@@ -42,15 +43,20 @@ goto         {"type":"goto",
              Bridge solves IK once and interpolates over goto.move_time_s.
              Replies `ack` {"of":"goto","ok":bool,"reason":str}.
 
---- Sequence ---
-seq          {"type":"seq", "cmd":"release"}    torque off, move arm by hand
+--- Sequence / pose mode  (app Sequence screen; viewer "author poses" panel) ---
+seq          Place the arm, then capture. Two ways to place it:
+             {"type":"seq", "q":{"elbow_flex":40, "gripper":80, ...}}
+                 absolute joint target (deg; gripper 0..100); partial dict merges.
+                 The viewer's sliders send this.
+             {"type":"seq", "cmd":"release"}    torque off, hand-guide (hardware)
              {"type":"seq", "cmd":"hold"}       torque back on
-             {"type":"seq", "cmd":"capture"}    store current joints as a pose
-             {"type":"seq", "cmd":"clear"}      drop all captured poses
+             {"type":"seq", "cmd":"capture"}    append current pose
+             {"type":"seq", "cmd":"delete", "index":<i>}
+             {"type":"seq", "cmd":"clear"}
              {"type":"seq", "cmd":"play",
-                 "steps":[ {"pose": <i>} | {"delay_ms": <n>}, ... ]}
-             {"type":"seq", "cmd":"stop"}       halt playback
-             Bridge replies `seq_state` after capture/clear/play/stop.
+                 "steps":[ {"pose":<i>} | {"delay_ms":<n>}, ... ]}   steps optional
+             {"type":"seq", "cmd":"stop"}
+             Replies `seq_state` after every capture/delete/clear/play/finish.
 
 --- Voice ---
 voice        {"type":"voice", "token":"stop"|"home"|"open"|"close"
@@ -71,7 +77,8 @@ state        {"type":"state",                       # ~control.telemetry_hz
               "ee": {"x":<m>, "y":<m>, "z":<m>} | null}
 
 ack          {"type":"ack", "of":"goto"|"voice", "ok":true, "reason":""}
-seq_state    {"type":"seq_state", "captured":<n>, "playing":false}
+seq_state    {"type":"seq_state", "captured":<n>, "playing":bool, "released":bool,
+              "poses":[[j1..j6 deg], ...]}
 error        {"type":"error", "msg": "..."}
 pong         {"type":"pong", "t": <echoed client ms>}
 """

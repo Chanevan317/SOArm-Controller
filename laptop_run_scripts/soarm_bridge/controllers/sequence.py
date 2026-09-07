@@ -1,9 +1,14 @@
 """
-Sequence: release torque to hand-guide, capture joint poses, replay them.
+Sequence / pose mode — the same thing the app's Sequence screen drives, and the
+viewer's "author poses" panel.
 
-No IK involved — everything is joint space. Replay builds a list of move/hold
-segments and walks it. Move duration is set by the largest joint delta divided by
-sequence.replay_joint_speed_dps.
+Two ways to place the arm before capturing a pose:
+  * release torque and hand-guide it       (real hardware)
+  * send absolute joint targets            {"type":"seq","q":{"elbow_flex":40,...}}
+                                            (the viewer's sliders; works in sim)
+Then capture / delete / clear / play. Replay is joint-space: a list of move/hold
+segments, move duration = largest joint delta / sequence.replay_joint_speed_dps.
+No IK.
 """
 
 from __future__ import annotations
@@ -12,6 +17,7 @@ import logging
 
 import numpy as np
 
+from .. import J
 from .base import Controller, Ctx
 
 log = logging.getLogger("soarm.seq")
@@ -27,6 +33,7 @@ class SequenceController(Controller):
         self._i = 0
         self._t = 0.0
         self._released = False
+        self._target: np.ndarray | None = None      # slider target (absolute joints)
 
     def reset(self) -> None:
         self.playing = False
@@ -34,19 +41,41 @@ class SequenceController(Controller):
         self._i = 0
         self._t = 0.0
 
+    def on_activate(self, ctx: Ctx) -> None:
+        # sliders start wherever the arm currently is
+        self._target = ctx.arm.read_joints().astype(float)
+
     def on_deactivate(self, ctx: Ctx) -> None:
-        # leaving the mode with motors off would be a surprise — re-enable
-        if self._released:
+        if self._released:                           # don't leave motors off
             ctx.arm.set_torque(True)
             self._released = False
+        self._target = None
         self.reset()
 
     def _emit(self, ctx: Ctx) -> None:
-        ctx.reply({"type": "seq_state", "captured": len(self.captured), "playing": self.playing})
+        ctx.reply({
+            "type": "seq_state",
+            "captured": len(self.captured),
+            "playing": self.playing,
+            "released": self._released,
+            "poses": [[round(float(v), 2) for v in p] for p in self.captured],
+        })
 
     def handle(self, msg: dict, ctx: Ctx) -> None:
         if msg.get("type") != "seq":
             return
+
+        # absolute joint target from the sliders (partial dict merges)
+        if "q" in msg and isinstance(msg["q"], dict):
+            if self._target is None:
+                self._target = ctx.arm.read_joints().astype(float)
+            for name, val in msg["q"].items():
+                if name in J:
+                    self._target[J[name]] = float(val)
+            self._target = ctx.safety.clamp_joints(self._target)
+            self.playing = False
+            return
+
         cmd = msg.get("cmd")
 
         if cmd == "release":
@@ -58,21 +87,27 @@ class SequenceController(Controller):
         elif cmd == "hold":
             ctx.arm.set_torque(True)
             self._released = False
+            self._target = ctx.arm.read_joints().astype(float)
             self._emit(ctx)
 
         elif cmd == "capture":
-            if self._released or ctx.arm.sim:
-                self.captured.append(ctx.arm.read_joints().copy())
-                self._emit(ctx)
-            else:
-                ctx.reply({"type": "error", "msg": "release motors before capturing"})
+            q = self._target if (self._target is not None and not self._released) \
+                else ctx.arm.read_joints()
+            self.captured.append(np.asarray(q, float).copy())
+            self._emit(ctx)
+
+        elif cmd == "delete":
+            i = int(msg.get("index", -1))
+            if 0 <= i < len(self.captured):
+                self.captured.pop(i)
+            self._emit(ctx)
 
         elif cmd == "clear":
             self.captured.clear()
             self._emit(ctx)
 
         elif cmd == "play":
-            self._build_plan(msg.get("steps", []), ctx)
+            self._build_plan(msg.get("steps") or [{"pose": i} for i in range(len(self.captured))], ctx)
 
         elif cmd == "stop":
             self.reset()
@@ -111,26 +146,24 @@ class SequenceController(Controller):
         self._emit(ctx)
 
     def tick(self, dt: float, ctx: Ctx) -> np.ndarray | None:
-        if not self.playing or self._i >= len(self._plan):
-            if self.playing:                 # just finished
-                self.playing = False
-                self._emit(ctx)
-            return None
-
-        self._t += dt
-        seg = self._plan[self._i]
-
-        if seg["kind"] == "move":
-            a = min(1.0, self._t / seg["dur"])
-            a = a * a * (3.0 - 2.0 * a)       # smoothstep
-            q = seg["a"] + (seg["b"] - seg["a"]) * a
+        if self.playing and self._i < len(self._plan):
+            self._t += dt
+            seg = self._plan[self._i]
+            if seg["kind"] == "move":
+                a = min(1.0, self._t / seg["dur"])
+                a = a * a * (3.0 - 2.0 * a)          # smoothstep
+                q = seg["a"] + (seg["b"] - seg["a"]) * a
+            else:
+                q = seg["q"]
             if self._t >= seg["dur"]:
                 self._i += 1
                 self._t = 0.0
             return q
 
-        # hold
-        if self._t >= seg["dur"]:
-            self._i += 1
-            self._t = 0.0
-        return seg["q"]
+        if self.playing:                             # just finished
+            self.playing = False
+            self._emit(ctx)
+
+        if self._released:                           # hand-guided: send nothing
+            return None
+        return self._target                          # hold at the slider pose (or None)

@@ -25,11 +25,14 @@ control:
 # ---- SAFETY: these are PLACEHOLDERS. Run `lerobot-find-joint-limits` and replace. ----
 safety:
   # order: shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll, gripper
-  joint_min_deg: [-110, -100, -100, -100, -180,   0]
-  joint_max_deg: [ 110,  100,  100,  100,  180, 100]
-  # end-effector box in metres, robot base frame (x fwd, y left, z up-ish — verify!)
-  workspace_min_m: [-0.30, -0.30, 0.02]
-  workspace_max_m: [ 0.32,  0.30, 0.35]
+  # (defaults match the SO-101 URDF limits)
+  joint_min_deg: [-110, -100, -97, -95, -157, -10]
+  joint_max_deg: [ 110,  100,  97,  95,  163, 100]
+  # end-effector box in metres, robot base frame (x fwd, y left, z up).
+  # Kept small + forward + above the table so no reachable pose in it folds the
+  # arm onto itself (there is no self-collision model on the mesh-free URDF).
+  workspace_min_m: [0.15, -0.16, 0.10]
+  workspace_max_m: [0.30,  0.16, 0.28]
   max_joint_step_deg: 6.0   # largest change any joint may be commanded per control tick
   watchdog_timeout_s: 0.4   # no fresh jog/goto packet for this long -> hold position
 
@@ -47,7 +50,16 @@ sequence:
   default_delay_ms: 500
 
 voice:
-  pulse_ms: 700            # how long a directional keyword nudges the arm
-  pulse_speed_index: 0     # which jog speed tier a voice pulse uses
+  # A direction keyword ("right", "up", ...) latches continuous motion until you
+  # say "stop" or another direction. It also auto-stops after a quiet gap.
+  pulse_speed_index: 1     # speed tier (0/1/2) for latched voice motion
+  latch_timeout_s: 10.0    # latched motion stops after this many seconds of no keyword
 
-home_joints_deg: [0.0, -90.0, 90.0, 0.0, 0.0, 50.0]   # "home" / rest pose
+home_joints_deg: [0.0, -90.0, 90.0, 0.0, 0.0, 50.0]
+
+# Named joint poses the Voice mode can move to ("home", "rest", "ready", ...).
+named_poses:
+  home:   [0.0, -90.0, 90.0,  0.0, 0.0,  50.0]
+  rest:   [0.0, -92.0, 88.0, 40.0, 0.0,   5.0]
+  ready:  [0.0, -60.0, 68.0, -8.0, 0.0, 100.0]
+  extend: [0.0, -35.0, 40.0, -5.0, 0.0,  50.0]

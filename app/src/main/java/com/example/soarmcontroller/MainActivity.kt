@@ -14,6 +14,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,7 +26,9 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import com.example.soarmcontroller.data.AppStore
 import com.example.soarmcontroller.data.Settings
+import com.example.soarmcontroller.net.BridgeClient
 import com.example.soarmcontroller.ui.SoArmApp
+import com.example.soarmcontroller.ui.screens.PermissionsScreen
 import com.example.soarmcontroller.ui.screens.WelcomeScreen
 import com.example.soarmcontroller.ui.theme.SOArmControllerTheme
 import com.example.soarmcontroller.ui.theme.ThemeMode
@@ -44,9 +47,13 @@ private fun SoArmRoot() {
     val appContext = LocalContext.current.applicationContext
     val settings = remember { Settings(appContext) }
     val store = remember { AppStore(appContext) }
+    val bridge = remember { BridgeClient() }
+    DisposableEffect(Unit) { onDispose { bridge.disconnect() } }
 
     var themeMode by remember { mutableStateOf(settings.themeMode) }
-    var onboarded by remember { mutableStateOf(settings.onboarded) }
+    var step by remember {
+        mutableStateOf(if (settings.onboarded) OnbStep.APP else OnbStep.WELCOME)
+    }
 
     val resolvedDark = when (themeMode) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
@@ -67,23 +74,26 @@ private fun SoArmRoot() {
 
     SOArmControllerTheme(themeMode = themeMode) {
         AnimatedContent(
-            targetState = onboarded,
+            targetState = step,
             transitionSpec = {
                 (fadeIn(tween(380)) + slideInVertically(tween(380)) { it / 10 }) togetherWith
                     (fadeOut(tween(220)) + slideOutVertically(tween(220)) { -it / 14 })
             },
-            label = "welcome-to-app",
-        ) { done ->
-            if (!done) {
-                WelcomeScreen(
-                    onGetStarted = {
+            label = "onboarding",
+        ) { s ->
+            when (s) {
+                OnbStep.WELCOME -> WelcomeScreen(
+                    onGetStarted = { step = OnbStep.PERMISSIONS },
+                )
+                OnbStep.PERMISSIONS -> PermissionsScreen(
+                    onContinue = {
                         settings.onboarded = true
-                        onboarded = true
+                        step = OnbStep.APP
                     },
                 )
-            } else {
-                SoArmApp(
+                OnbStep.APP -> SoArmApp(
                     store = store,
+                    bridge = bridge,
                     themeMode = themeMode,
                     resolvedDark = resolvedDark,
                     onThemeModeChange = { mode ->
@@ -95,3 +105,5 @@ private fun SoArmRoot() {
         }
     }
 }
+
+private enum class OnbStep { WELCOME, PERMISSIONS, APP }

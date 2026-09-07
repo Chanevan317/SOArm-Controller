@@ -38,17 +38,22 @@ class ControlCfg:
 
 @dataclass
 class SafetyCfg:
+    # shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll, gripper —
+    # matches the SO-101 URDF limits (placo enforces these during IK too).
     joint_min_deg: np.ndarray = field(
-        default_factory=lambda: np.array([-110, -100, -100, -100, -180, 0], float)
+        default_factory=lambda: np.array([-110, -100, -97, -95, -157, -10], float)
     )
     joint_max_deg: np.ndarray = field(
-        default_factory=lambda: np.array([110, 100, 100, 100, 180, 100], float)
+        default_factory=lambda: np.array([110, 100, 97, 95, 163, 100], float)
     )
+    # End-effector box for jog. Kept in the "reach out, forward, above the
+    # table" zone so no reachable pose inside it folds the arm onto itself.
+    # (No self-collision model on the mesh-free URDF, so this is the guard.)
     workspace_min_m: np.ndarray = field(
-        default_factory=lambda: np.array([-0.30, -0.30, 0.02], float)
+        default_factory=lambda: np.array([0.15, -0.16, 0.10], float)
     )
     workspace_max_m: np.ndarray = field(
-        default_factory=lambda: np.array([0.32, 0.30, 0.35], float)
+        default_factory=lambda: np.array([0.30, 0.16, 0.28], float)
     )
     max_joint_step_deg: float = 6.0
     watchdog_timeout_s: float = 0.4
@@ -59,6 +64,9 @@ class JogCfg:
     speed_scale_mps: list[float] = field(default_factory=lambda: [0.03, 0.07, 0.13])
     pitch_speed_dps: list[float] = field(default_factory=lambda: [15, 30, 55])
     grip_speed_pps: list[float] = field(default_factory=lambda: [60, 120, 200])
+    # how far the held pitch/roll offset may swing from the seed pose (deg)
+    pitch_limit_deg: float = 55.0
+    roll_limit_deg: float = 90.0
 
 
 @dataclass
@@ -74,8 +82,8 @@ class SequenceCfg:
 
 @dataclass
 class VoiceCfg:
-    pulse_ms: int = 700
-    pulse_speed_index: int = 0
+    pulse_speed_index: int = 1     # speed tier (0/1/2) for latched voice motion
+    latch_timeout_s: float = 10.0  # a latched direction auto-stops after this quiet gap
 
 
 @dataclass
@@ -92,6 +100,13 @@ class Config:
     home_joints_deg: np.ndarray = field(
         default_factory=lambda: np.array([0, -90, 90, 0, 0, 50], float)
     )
+    # Named joint poses the Voice mode can move to (deg, MOTORS order).
+    named_poses: dict = field(default_factory=lambda: {
+        "home": [0.0, -90.0, 90.0, 0.0, 0.0, 50.0],
+        "rest": [0.0, -92.0, 88.0, 40.0, 0.0, 5.0],      # tucked, low, grip nearly shut
+        "ready": [0.0, -60.0, 68.0, -8.0, 0.0, 100.0],   # reaching forward, grip open
+        "extend": [0.0, -35.0, 40.0, -5.0, 0.0, 50.0],   # arm out straight-ish
+    })
 
     @property
     def urdf_path(self) -> Path:

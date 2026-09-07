@@ -22,6 +22,7 @@ class Ctx:
     reply: Callable[[dict], None]      # send one frame to the controlling client
     broadcast: Callable[[dict], None]  # send one frame to all clients
     estop: Callable[[], None]          # latch an emergency stop
+    resume: Callable[[], None]         # clear a latched stop
 
 
 class Controller:

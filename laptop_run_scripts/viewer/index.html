@@ -31,6 +31,28 @@
   #msg { margin-top: 8px; font-size: 11px; white-space: pre-wrap; }
   #msg.err { color: #fca5a5; }
   #msg.info { color: #93c5fd; }
+  #authToggle.on { border-color: #ff7c45; color: #ffd9c6; }
+
+  #author { position: fixed; top: 12px; right: 12px; width: 290px;
+            background: rgba(20,20,22,.9); border: 1px solid #333; border-radius: 10px;
+            padding: 12px 14px; backdrop-filter: blur(6px);
+            max-height: calc(100vh - 24px); overflow-y: auto; }
+  #author h2 { margin: 0 0 6px; font-size: 12px; letter-spacing: .04em;
+               color: #ff7c45; text-transform: uppercase; }
+  #author .hint { font-size: 10px; color: #888; margin-bottom: 8px; }
+  .sld { margin: 7px 0; }
+  .sld label { display: flex; justify-content: space-between; font-size: 11px; color: #aaa; }
+  .sld input[type=range] { width: 100%; accent-color: #ff7c45; }
+  #author .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+  #author .btns button { margin: 0; padding: 6px; border-radius: 6px; border: 1px solid #555;
+                         background: #1d1d1f; color: #eee; cursor: pointer; font-size: 12px; }
+  #author .btns button:hover { background: #2a2a2d; }
+  #author .btns button.primary { border-color: #ff7c45; color: #ffd9c6; }
+  #poselist { list-style: none; padding: 0; margin: 10px 0 0; font-size: 11px; }
+  #poselist li { display: flex; justify-content: space-between; align-items: center;
+                 padding: 3px 6px; border: 1px solid #333; border-radius: 5px; margin-top: 4px;
+                 font-family: ui-monospace, monospace; }
+  #poselist li button { border: 0; background: transparent; color: #f88; cursor: pointer; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -48,7 +70,21 @@
   <label>port</label>
   <input id="port" value="8765" />
   <button id="connect">connect</button>
+  <button id="authToggle">pose mode ▸</button>
   <div id="msg" class="info"></div>
+</div>
+
+<div id="author" hidden>
+  <h2>Pose mode</h2>
+  <div class="hint">bridge sequence mode. drag joints → Capture → repeat → Play.</div>
+  <div id="sliders"></div>
+  <div class="btns">
+    <button id="btnCapture" class="primary">Capture pose</button>
+    <button id="btnPlay">Play</button>
+    <button id="btnStop">Stop</button>
+    <button id="btnClear">Clear</button>
+  </div>
+  <ol id="poselist"></ol>
 </div>
 
 <script type="importmap">
@@ -224,6 +260,10 @@ function connect() {
       $("ee").textContent = m.ee ? `${m.ee.x.toFixed(3)}, ${m.ee.y.toFixed(3)}, ${m.ee.z.toFixed(3)}` : "—";
       $("joints").textContent = Object.entries(m.joints).map(([k, v]) => `${k.padEnd(14)}${v.toFixed(1)}`).join("\n");
       applyJoints(m.joints);
+      lastJoints = m.joints;
+      if (authoring && !dragging) setSliders(m.joints);
+    } else if (m.type === "seq_state") {
+      renderPoses(m);
     } else if (m.type === "welcome") {
       setMsg("connected to " + m.robot + (m.kinematics ? " (IK on)" : " (no IK)"), "info");
     } else if (m.type === "error") {
@@ -231,6 +271,86 @@ function connect() {
     }
   };
 }
+
+// ---------- pose authoring ----------
+const MOTORS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"];
+let authoring = false, dragging = false, lastJoints = null, sendPending = null, lastSend = 0;
+
+const sendJSON = o => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
+
+function jointRangeDeg(name) {
+  if (name === "gripper") return [0, 100];
+  const j = robot && robot.joints[name];
+  if (j && j.limit && j.limit.lower !== j.limit.upper)
+    return [j.limit.lower / DEG2RAD, j.limit.upper / DEG2RAD];
+  return [-180, 180];
+}
+
+function buildSliders() {
+  const box = $("sliders");
+  box.innerHTML = "";
+  for (const name of MOTORS) {
+    const [lo, hi] = jointRangeDeg(name);
+    const wrap = document.createElement("div");
+    wrap.className = "sld";
+    wrap.innerHTML =
+      `<label><span>${name}</span><span id="v_${name}">0</span></label>` +
+      `<input type="range" id="s_${name}" min="${lo.toFixed(0)}" max="${hi.toFixed(0)}" step="1" value="0">`;
+    box.appendChild(wrap);
+    const s = wrap.querySelector("input");
+    s.addEventListener("input", () => {
+      dragging = true;
+      $("v_" + name).textContent = s.value;
+      queueManual({ [name]: Number(s.value) });
+    });
+    s.addEventListener("change", () => { dragging = false; });
+  }
+}
+
+function setSliders(joints) {
+  for (const name of MOTORS) {
+    const s = $("s_" + name);
+    if (!s) continue;
+    const v = Math.round(joints[name]);
+    s.value = v;
+    const vl = $("v_" + name);
+    if (vl) vl.textContent = v;
+  }
+}
+
+function queueManual(q) {
+  const send = () => { lastSend = performance.now(); sendJSON({ type: "seq", q }); };
+  if (performance.now() - lastSend > 40) send();
+  else { clearTimeout(sendPending); sendPending = setTimeout(send, 40); }
+}
+
+function setAuthoring(on) {
+  authoring = on;
+  $("author").hidden = !on;
+  $("authToggle").classList.toggle("on", on);
+  $("authToggle").textContent = on ? "pose mode ▾" : "pose mode ▸";
+  sendJSON({ type: "mode", mode: on ? "sequence" : "jog" });
+  if (on) { buildSliders(); if (lastJoints) setSliders(lastJoints); }
+}
+
+function renderPoses(m) {
+  const ol = $("poselist");
+  ol.innerHTML = "";
+  (m.poses || []).forEach((p, i) => {
+    const li = document.createElement("li");
+    const txt = p.map(v => (v >= 0 ? " " : "") + v.toFixed(0)).join(" ");
+    li.innerHTML = `<span>${i + 1}.${txt}</span><button title="delete">✕</button>`;
+    li.querySelector("button").onclick = () => sendJSON({ type: "seq", cmd: "delete", index: i });
+    ol.appendChild(li);
+  });
+  $("btnPlay").textContent = m.playing ? "Playing…" : "Play";
+}
+
+$("authToggle").addEventListener("click", () => setAuthoring(!authoring));
+$("btnCapture").addEventListener("click", () => sendJSON({ type: "seq", cmd: "capture" }));
+$("btnPlay").addEventListener("click", () => sendJSON({ type: "seq", cmd: "play" }));
+$("btnStop").addEventListener("click", () => sendJSON({ type: "seq", cmd: "stop" }));
+$("btnClear").addEventListener("click", () => sendJSON({ type: "seq", cmd: "clear" }));
 
 $("connect").addEventListener("click", connect);
 connect();

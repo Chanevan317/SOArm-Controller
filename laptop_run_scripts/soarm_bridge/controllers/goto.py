@@ -61,25 +61,29 @@ class GotoController(Controller):
 
         r_des = t_cur[:3, :3]
         pitch = msg.get("pitch")
+        # Position-only IK unless a wrist pitch was asked for — a 5-DOF arm can't
+        # generally hold orientation, so most typed targets are "unreachable"
+        # otherwise.
+        ow = 0.0
         if pitch is not None:
-            # interpret pitch as absolute rotation about the current frame's local Y
             r_des = t_cur[:3, :3] @ Rotation.from_rotvec(
                 [0.0, np.deg2rad(float(pitch)), 0.0]
             ).as_matrix()
+            ow = 0.05
 
         t_des = np.eye(4)
         t_des[:3, :3] = r_des
         t_des[:3, 3] = target
 
         try:
-            q_goal = ctx.arm.ik(q_now, t_des).astype(float)
+            q_goal = ctx.arm.ik(q_now, t_des, orientation_weight=ow).astype(float)
         except Exception as e:  # noqa: BLE001
             ctx.reply({"type": "ack", "of": "goto", "ok": False, "reason": f"IK failed: {e}"})
             return
 
         q_goal = ctx.safety.clamp_joints(q_goal)
-        # keep the gripper where it is unless we later add a gripper field
-        q_goal[J["gripper"]] = q_now[J["gripper"]]
+        # close the gripper on the way to the target (0 = closed)
+        q_goal[J["gripper"]] = 0.0
 
         # sanity: does FK of the solution land near the request?
         reached = ctx.arm.fk(q_goal)[:3, 3]

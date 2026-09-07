@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.example.soarmcontroller.net.BridgeClient
 import com.example.soarmcontroller.ui.components.ExpandableCard
 import com.example.soarmcontroller.ui.components.Guideline
 import com.example.soarmcontroller.ui.components.LevelBars
@@ -50,24 +51,30 @@ import com.example.soarmcontroller.voice.VoiceModel
 import com.example.soarmcontroller.voice.VoiceRecognizer
 import kotlinx.coroutines.launch
 
+/**
+ * The recognition grammar — every one of these is a command the laptop bridge
+ * acts on, so whatever Vosk hears gets sent straight through.
+ */
+private val COMMANDS = listOf(
+    "stop", "home", "rest", "ready", "extend",
+    "open", "close",
+    "faster", "slower",
+    "up", "down", "left", "right", "forward", "back",
+    "rotate left", "rotate right",
+)
+
 private val VOICE_GUIDELINES = listOf(
     Guideline("Fixed grammar", "Only the listed keywords are recognised — no free sentences."),
+    Guideline("Directions latch", "\"right\", \"up\", etc. keep the arm moving until you say \"stop\" or another direction."),
     Guideline("On-device", "Recognition runs locally with Vosk; no internet needed after setup."),
     Guideline("Push-to-talk", "Hold the mic for anything that moves the arm."),
     Guideline("Stop", "Always mirrored on a physical button — never voice-only."),
     Guideline("Model", "The ~40 MB speech model downloads once, on first use."),
 )
 
-private val COMMANDS = listOf(
-    "stop", "home", "open", "close",
-    "faster", "slower",
-    "up", "down", "left", "right", "forward", "back",
-    "rotate left", "rotate right",
-    "go to one", "go to two", "go to three",
-)
-
 @Composable
 fun VoiceScreen(
+    bridge: BridgeClient,
     connected: Boolean,
     onRequestConnect: () -> Unit,
     contentPadding: PaddingValues,
@@ -98,6 +105,12 @@ fun VoiceScreen(
 
         LaunchedEffect(modelPresent) { if (modelPresent) recognizer.ensureModel() }
         DisposableEffect(Unit) { onDispose { recognizer.shutdown() } }
+
+        // Forward every recognised keyword to the bridge — including repeats of
+        // the same word (send() is a no-op when disconnected).
+        LaunchedEffect(recognizer) {
+            recognizer.recognized.collect { token -> bridge.voice(token) }
+        }
 
         val canListen = modelPresent && vs.ready && hasMic
 
@@ -223,7 +236,7 @@ private fun displayWord(
 private fun helperLine(hasMic: Boolean, modelPresent: Boolean): String = when {
     !hasMic -> "Microphone permission needed."
     !modelPresent -> "Download the model to start."
-    else -> "Recognised words are shown above; commands aren't sent to the arm yet."
+    else -> "Recognised keywords are sent to the arm when connected."
 }
 
 @Composable

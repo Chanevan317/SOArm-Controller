@@ -72,12 +72,18 @@ class ControlLoop:
             reply=self.reply,
             broadcast=self.broadcast,
             estop=self._trigger_estop,
+            resume=self._clear_estop,
         )
 
     def _trigger_estop(self) -> None:
         if not self.stopped:
             log.warning("E-STOP")
         self.stopped = True
+
+    def _clear_estop(self) -> None:
+        if self.stopped:
+            log.info("stop cleared (by controller)")
+        self.stopped = False
 
     # -- inbound ----------------------------------------------------------
 
