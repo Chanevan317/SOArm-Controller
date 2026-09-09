@@ -125,12 +125,8 @@ class BridgeClient {
         put("speed", speed); put("enabled", enabled)
     })
 
-    fun goTo(x: Double, y: Double, z: Double, pitch: Double?, roll: Double?) =
-        send(frame("goto") {
-            put("x", x); put("y", y); put("z", z)
-            put("pitch", pitch ?: JSONObject.NULL)
-            put("roll", roll ?: JSONObject.NULL)
-        })
+    fun goTo(x: Double, y: Double, z: Double) =
+        send(frame("goto") { put("x", x); put("y", y); put("z", z) })
 
     /** Sequence / pose mode: capture | delete | clear | play | stop | release | hold. */
     fun seqCmd(cmd: String, index: Int? = null, steps: List<Map<String, Any>>? = null) =

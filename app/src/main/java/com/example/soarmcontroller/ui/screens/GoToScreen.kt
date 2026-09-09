@@ -39,10 +39,7 @@ import com.example.soarmcontroller.ui.components.NotConnectedDialog
 import kotlinx.coroutines.launch
 
 private val GOTO_GUIDELINES = listOf(
-    Guideline(
-        "Units",
-        "Millimetres for X / Y / Z, degrees for pitch / roll, in the robot base frame.",
-    ),
+    Guideline("Units", "Millimetres for X / Y / Z, in the robot base frame."),
     Guideline(
         "Reachable range",
         "Roughly X 120–320, Y −200–200, Z 40–300 mm, but not all corners at once. " +
@@ -53,7 +50,7 @@ private val GOTO_GUIDELINES = listOf(
         "Solves IK, checks it's reachable, interpolates the joints there, and " +
             "closes the gripper on arrival.",
     ),
-    Guideline("Orientation", "Leave pitch / roll blank to keep the wrist where it is."),
+    Guideline("Wrist", "Orientation is automatic — it stays near where it was."),
     Guideline("Save preset", "Stores the current values locally to recall later."),
 )
 
@@ -78,8 +75,6 @@ fun GoToScreen(
         var x by remember { mutableStateOf("") }
         var y by remember { mutableStateOf("") }
         var z by remember { mutableStateOf("") }
-        var pitch by remember { mutableStateOf("") }
-        var roll by remember { mutableStateOf("") }
         var showSave by remember { mutableStateOf(false) }
         var warnBeforeSave by remember { mutableStateOf(false) }
 
@@ -110,14 +105,10 @@ fun GoToScreen(
             }
             Text(
                 "Reachable ≈ X 120–320 · Y ±200 · Z 40–300 mm (not every corner). " +
-                    "Home ≈ 250 / 0 / 140.",
+                    "Home ≈ 250 / 0 / 140. Wrist orientation is automatic.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                NumField("Pitch °", pitch, { pitch = it }, Modifier.weight(1f))
-                NumField("Roll °", roll, { roll = it }, Modifier.weight(1f))
-            }
 
             val haveXyz = x.isNotBlank() && y.isNotBlank() && z.isNotBlank()
             Button(
@@ -126,8 +117,6 @@ fun GoToScreen(
                         x = x.toDoubleOrNull() ?: 0.0,
                         y = y.toDoubleOrNull() ?: 0.0,
                         z = z.toDoubleOrNull() ?: 0.0,
-                        pitch = pitch.toDoubleOrNull(),
-                        roll = roll.toDoubleOrNull(),
                     )
                 },
                 enabled = connected && haveXyz,
@@ -142,7 +131,7 @@ fun GoToScreen(
                 TextButton(
                     onClick = { if (connected) showSave = true else warnBeforeSave = true },
                     modifier = Modifier.weight(1f),
-                    enabled = listOf(x, y, z, pitch, roll).any { it.isNotBlank() },
+                    enabled = x.isNotBlank() || y.isNotBlank() || z.isNotBlank(),
                 ) { Text("Save preset") }
             }
 
@@ -162,8 +151,6 @@ fun GoToScreen(
                                     x = p.x.orEmptyStr()
                                     y = p.y.orEmptyStr()
                                     z = p.z.orEmptyStr()
-                                    pitch = p.pitch.orEmptyStr()
-                                    roll = p.roll.orEmptyStr()
                                 },
                                 onDelete = { scope.launch { repo.delete(p.id) } },
                             )
@@ -200,8 +187,8 @@ fun GoToScreen(
                                 x = x.toDoubleOrNull(),
                                 y = y.toDoubleOrNull(),
                                 z = z.toDoubleOrNull(),
-                                pitch = pitch.toDoubleOrNull(),
-                                roll = roll.toDoubleOrNull(),
+                                pitch = null,
+                                roll = null,
                             ),
                         )
                     }

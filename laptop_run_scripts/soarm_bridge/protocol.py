@@ -37,11 +37,11 @@ jog          {"type":"jog",
              `enabled:false` or no frame within safety.watchdog_timeout_s -> hold.
 
 --- Go To ---
-goto         {"type":"goto",
-              "x": <mm>, "y": <mm>, "z": <mm>,        # base frame
-              "pitch": <deg>|null, "roll": <deg>|null}
-             Bridge solves IK once and interpolates over goto.move_time_s.
-             Replies `ack` {"of":"goto","ok":bool,"reason":str}.
+goto         {"type":"goto", "x": <mm>, "y": <mm>, "z": <mm>}   # base frame
+             Wrist orientation is automatic (kept near where it was).
+             Bridge solves IK once, interpolates over goto.move_time_s, and
+             closes the gripper on arrival. Replies `ack`
+             {"of":"goto","ok":bool,"reason":str}.
 
 --- Sequence / pose mode  (app Sequence screen; viewer "author poses" panel) ---
 seq          Place the arm, then capture. Two ways to place it:

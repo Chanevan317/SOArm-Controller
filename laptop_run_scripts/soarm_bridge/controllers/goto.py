@@ -17,11 +17,6 @@ from .base import Controller, Ctx
 
 log = logging.getLogger("soarm.goto")
 
-try:
-    from lerobot.utils.rotation import Rotation
-except Exception:  # noqa: BLE001
-    from scipy.spatial.transform import Rotation  # type: ignore
-
 
 def _smoothstep(a: float) -> float:
     a = min(1.0, max(0.0, a))
@@ -59,24 +54,14 @@ class GotoController(Controller):
         q_now = ctx.arm.read_joints()
         t_cur = ctx.arm.fk(q_now)
 
-        r_des = t_cur[:3, :3]
-        pitch = msg.get("pitch")
-        # Position-only IK unless a wrist pitch was asked for — a 5-DOF arm can't
-        # generally hold orientation, so most typed targets are "unreachable"
-        # otherwise.
-        ow = 0.0
-        if pitch is not None:
-            r_des = t_cur[:3, :3] @ Rotation.from_rotvec(
-                [0.0, np.deg2rad(float(pitch)), 0.0]
-            ).as_matrix()
-            ow = 0.05
-
+        # Orientation is automatic: a 5-DOF arm can't hold an arbitrary wrist
+        # angle, so we solve for position only and let IK pick the wrist.
         t_des = np.eye(4)
-        t_des[:3, :3] = r_des
+        t_des[:3, :3] = t_cur[:3, :3]
         t_des[:3, 3] = target
 
         try:
-            q_goal = ctx.arm.ik(q_now, t_des, orientation_weight=ow).astype(float)
+            q_goal = ctx.arm.ik(q_now, t_des, orientation_weight=0.0).astype(float)
         except Exception as e:  # noqa: BLE001
             ctx.reply({"type": "ack", "of": "goto", "ok": False, "reason": f"IK failed: {e}"})
             return
