@@ -2,17 +2,18 @@
 
 Control an **SO‑100 / SO‑101** robot arm from an Android phone.
 
-The phone is the interface. A laptop on the same Wi‑Fi runs a small Python
-**bridge** that turns the phone's commands into motor moves for the arm over USB.
-The phone finds the laptop on its own — no IP address to type.
+The phone is the interface. A laptop runs a small Python **bridge** that turns the
+phone's commands into motor moves for the arm over USB. The phone reaches the
+laptop over the **same Wi‑Fi** or over a **USB cable** — and finds it on its own,
+no IP address to type.
 
 ```
-┌──────────────┐   Wi‑Fi (WebSocket)   ┌────────────────────────┐   USB   ┌─────────┐
-│  Android app │ ────────────────────▶ │  Laptop bridge         │ ──────▶ │ SO‑100  │
-│  (this repo) │   jog / target / pose │  Python + LeRobot      │ Feetech │  / 101  │
-│              │   / voice             │  (IK, safety limits)   │   bus   │  arm    │
-│              │ ◀──────────────────── │                        │         │         │
-└──────────────┘   live arm position   └────────────────────────┘         └─────────┘
+┌──────────────┐  Wi‑Fi or USB (WebSocket)  ┌────────────────────────┐  USB   ┌─────────┐
+│  Android app │ ─────────────────────────▶ │  Laptop bridge         │ ─────▶ │ SO‑100  │
+│  (this repo) │   jog / target / pose      │  Python + LeRobot      │Feetech │  / 101  │
+│              │   / voice                  │  (IK, safety limits)   │  bus   │  arm    │
+│              │ ◀───────────────────────── │                        │        │         │
+└──────────────┘   live arm position        └────────────────────────┘        └─────────┘
 ```
 
 The arm is the standard low‑cost one from
@@ -54,20 +55,36 @@ System / Light / Dark theme.
 
 ## Quick start
 
-**1. Run the bridge** (laptop):
+**1. Set up the laptop's Python env** (once):
 
 ```bash
-source ~/.venvs/lerobot/bin/activate
+# with uv (fast):
+uv venv --python 3.12 ~/.venvs/soarm
+source ~/.venvs/soarm/bin/activate
+uv pip install --torch-backend cpu "lerobot[feetech,kinematics]" websockets pyyaml
+
+# or with plain venv + pip:
+python3 -m venv ~/.venvs/soarm
+source ~/.venvs/soarm/bin/activate
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install "lerobot[feetech,kinematics]" websockets pyyaml
+```
+
+**2. Run the bridge** (laptop):
+
+```bash
+source ~/.venvs/soarm/bin/activate
 cd laptop_run_scripts
 python run_bridge.py --demo        # see it move with no arm and no phone
 ```
 
-**2. Build the app** and install it on the phone — see
+**3. Get the app.** Install a ready‑made APK from
+[Releases](../../releases), or build it yourself —
 [docs/building-the-app.md](docs/building-the-app.md).
 
-**3. Connect.** Put phone and laptop on the same Wi‑Fi, open the app. It finds
-the bridge by itself. If it doesn't, it's almost always the laptop firewall —
-see [docs/connecting.md](docs/connecting.md).
+**4. Connect.** Put phone and laptop on the same Wi‑Fi (or plug in a USB cable),
+open the app — it finds the bridge by itself. If it doesn't, it's almost always
+the laptop firewall — see [docs/connecting.md](docs/connecting.md).
 
 Then run `python run_bridge.py` (no `--demo`) and drive the arm from the phone.
 

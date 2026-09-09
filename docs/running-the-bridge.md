@@ -11,27 +11,41 @@ For how the phone reaches it, see [connecting.md](connecting.md).
 
 ## One‑time setup
 
-Needs Python 3.10+ and a virtual env with `lerobot`, `placo`, `numpy`,
-`websockets`, `pyyaml`:
+Needs Python 3.10+ and a virtual env. Everything the bridge imports comes from
+`lerobot[feetech,kinematics]` plus `websockets` and `pyyaml`.
+
+**With [uv](https://docs.astral.sh/uv/) (fast):**
 
 ```bash
-uv venv --python 3.12 ~/.venvs/lerobot
-source ~/.venvs/lerobot/bin/activate
-uv pip install --torch-backend cpu "lerobot[feetech,kinematics]"
-uv pip install websockets pyyaml
+uv venv --python 3.12 ~/.venvs/soarm
+source ~/.venvs/soarm/bin/activate
+uv pip install --torch-backend cpu "lerobot[feetech,kinematics]" websockets pyyaml
 ```
 
-(Plain `pip` works too; `uv` is just faster.)
+**With plain `venv` + `pip`:**
+
+```bash
+python3 -m venv ~/.venvs/soarm
+source ~/.venvs/soarm/bin/activate
+pip install torch --index-url https://download.pytorch.org/whl/cpu   # CPU-only torch (~200 MB vs ~5 GB CUDA)
+pip install "lerobot[feetech,kinematics]" websockets pyyaml
+```
+
+`lerobot` pulls in `placo` (the IK solver) and `numpy`. On Windows, drop the
+`--torch-backend cpu` / `--index-url` line if you actually want the CUDA build.
 
 The arm model (URDF) is committed in `laptop_run_scripts/assets/`, so there's
 nothing to download for kinematics. The viewer's 3‑D meshes download on first run
 unless you pass `--no-fetch`.
 
+> The name `~/.venvs/soarm` is just an example — use whatever path you like, and
+> `source` it before every `run_bridge.py`.
+
 ---
 
 ## The three ways to run it
 
-Always `source ~/.venvs/lerobot/bin/activate` first, then from
+Always `source ~/.venvs/soarm/bin/activate` first, then from
 `laptop_run_scripts/`:
 
 ```bash

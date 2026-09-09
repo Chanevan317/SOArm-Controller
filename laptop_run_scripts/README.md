@@ -13,7 +13,7 @@ see [`../docs/connecting.md`](../docs/connecting.md).
 Quick reference:
 
 ```bash
-source ~/.venvs/lerobot/bin/activate
+source ~/.venvs/soarm/bin/activate
 
 python run_bridge.py --demo                        # sim, no phone — self‑driving demo
 python run_bridge.py                               # sim + the real phone app

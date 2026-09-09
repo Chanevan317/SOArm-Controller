@@ -18,10 +18,13 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // Ship 64-bit ARM only. Covers every current phone and cuts the APK by
-        // ~40 MB of Vosk/JNA native libs. Remove this block to package all ABIs.
+        // 64-bit ARM only by default — covers every modern phone and drops
+        // ~30 MB of Vosk/JNA native libs. Pass -PuniversalApk to package every
+        // ABI instead ("runs on any device" build; larger APK).
         ndk {
-            abiFilters += "arm64-v8a"
+            if (!project.hasProperty("universalApk")) {
+                abiFilters += "arm64-v8a"
+            }
         }
     }
 
